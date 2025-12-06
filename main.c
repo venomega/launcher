@@ -4,10 +4,14 @@
 #include <string.h>
 #include <dirent.h>
 #include <stdbool.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
-#define MAX_APPS 20
+#define MAX_APPS 100
 #define GRID_ROWS 4
 #define GRID_COLS 5
+#define APPS_PER_PAGE (GRID_ROWS * GRID_COLS)
 
 typedef struct {
     char name[256];
@@ -23,7 +27,7 @@ void Trim(char *str) {
     while(*str == ' ') str++;
     if(*str == 0) return;
     end = str + strlen(str) - 1;
-    while(end > str && *end == ' ' || *end == '\n' || *end == '\r') end--;
+    while(end > str && (*end == ' ' || *end == '\n' || *end == '\r')) end--;
     *(end+1) = 0;
 }
 
@@ -77,10 +81,6 @@ void ParseDesktopFile(const char *path, AppEntry *app) {
             continue;
         }
         
-        // Some files have multiple sections, we mainly care about the first [Desktop Entry]
-        // But for simplicity, we just look for keys. 
-        // A robust parser would check sections.
-        
         if (strncmp(line, "Name=", 5) == 0) {
             char *val = line + 5;
             Trim(val);
@@ -92,10 +92,11 @@ void ParseDesktopFile(const char *path, AppEntry *app) {
         } else if (strncmp(line, "Exec=", 5) == 0) {
             char *val = line + 5;
             Trim(val);
+            // Remove %f, %u etc params often found in Exec lines
+            char *param = strstr(val, " %");
+            if (param) *param = '\0';
+            
             if (app->exec[0] == '\0') strncpy(app->exec, val, sizeof(app->exec) - 1);
-        } else if (strncmp(line, "NoDisplay=true", 14) == 0) {
-             // Skip NoDisplay apps if we wanted to be strict, but for now we load them
-             // or we could mark the app as invalid.
         }
     }
     fclose(fp);
@@ -128,7 +129,7 @@ void LoadApps(AppEntry *apps, int *count, int maxApps) {
                 AppEntry newApp;
                 ParseDesktopFile(fullPath, &newApp);
                 
-                if (strlen(newApp.name) > 0) {
+                if (strlen(newApp.name) > 0 && strlen(newApp.exec) > 0) {
                     apps[*count] = newApp;
                     (*count)++;
                 }
@@ -139,13 +140,24 @@ void LoadApps(AppEntry *apps, int *count, int maxApps) {
     }
 }
 
+void LaunchApp(const char *execCmd) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        // Child process
+        setsid(); // Create a new session
+        // Execute the command using /bin/sh to handle arguments properly
+        execl("/bin/sh", "sh", "-c", execCmd, (char *)NULL);
+        exit(1); // Should not reach here
+    }
+    // Parent process exits to close launcher
+    exit(0);
+}
+
 int main() {
-    // Enable window transparency
     SetConfigFlags(FLAG_WINDOW_TRANSPARENT | FLAG_WINDOW_UNDECORATED | FLAG_WINDOW_TOPMOST);
     
     InitWindow(0, 0, "Transparent Launcher");
     
-    // Set window to fullscreen size but not exclusive fullscreen mode to keep transparency working well on some WMs
     int screenWidth = GetMonitorWidth(0);
     int screenHeight = GetMonitorHeight(0);
     SetWindowSize(screenWidth, screenHeight);
@@ -161,7 +173,6 @@ int main() {
         if (strlen(apps[i].iconPath) > 0 && FileExists(apps[i].iconPath)) {
             Image img = LoadImage(apps[i].iconPath);
             if (img.data != NULL) {
-                // Resize for uniformity
                 ImageResize(&img, 64, 64); 
                 apps[i].texture = LoadTextureFromImage(img);
                 apps[i].textureLoaded = true;
@@ -172,41 +183,112 @@ int main() {
 
     SetTargetFPS(60);
 
+    int currentPage = 0;
+    int totalPages = (appCount + APPS_PER_PAGE - 1) / APPS_PER_PAGE;
+
     while (!WindowShouldClose()) {
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || IsGestureDetected(GESTURE_TAP)) {
+            Vector2 mousePos = GetMousePosition();
+            
+            // Check Navigation Buttons
+            if (totalPages > 1) {
+                if (currentPage < totalPages - 1) {
+                    // Next Button (Bottom Right)
+                    Rectangle nextBtn = { screenWidth - 100, screenHeight - 80, 80, 60 };
+                    if (CheckCollisionPointRec(mousePos, nextBtn)) {
+                        currentPage++;
+                        continue;
+                    }
+                }
+                
+                if (currentPage > 0) {
+                    // Prev Button (Bottom Left)
+                    Rectangle prevBtn = { 20, screenHeight - 80, 80, 60 };
+                    if (CheckCollisionPointRec(mousePos, prevBtn)) {
+                        currentPage--;
+                        continue;
+                    }
+                }
+            }
+
+            // Check Apps
+            int startIdx = currentPage * APPS_PER_PAGE;
+            int endIdx = startIdx + APPS_PER_PAGE;
+            if (endIdx > appCount) endIdx = appCount;
+
+            int cellWidth = screenWidth / GRID_COLS;
+            int cellHeight = screenHeight / GRID_ROWS;
+
+            for (int i = startIdx; i < endIdx; i++) {
+                int pageIndex = i - startIdx;
+                int row = pageIndex / GRID_COLS;
+                int col = pageIndex % GRID_COLS;
+                
+                int x = col * cellWidth;
+                int y = row * cellHeight;
+                
+                // Define a clickable area for the app (icon + text area)
+                Rectangle appRect = { x + 20, y + 20, cellWidth - 40, cellHeight - 40 };
+                
+                if (CheckCollisionPointRec(mousePos, appRect)) {
+                    LaunchApp(apps[i].exec);
+                }
+            }
+        }
+
         BeginDrawing();
-        // Clear with semi-transparent black (R,G,B,A)
-        // 0.3 alpha is approx 76/255
         ClearBackground((Color){0, 0, 0, 76});
 
         int cellWidth = screenWidth / GRID_COLS;
         int cellHeight = screenHeight / GRID_ROWS;
 
-        for (int i = 0; i < appCount; i++) {
-            int row = i / GRID_COLS;
-            int col = i % GRID_COLS;
+        int startIdx = currentPage * APPS_PER_PAGE;
+        int endIdx = startIdx + APPS_PER_PAGE;
+        if (endIdx > appCount) endIdx = appCount;
+
+        for (int i = startIdx; i < endIdx; i++) {
+            int pageIndex = i - startIdx;
+            int row = pageIndex / GRID_COLS;
+            int col = pageIndex % GRID_COLS;
             
             int x = col * cellWidth;
             int y = row * cellHeight;
 
-            // Draw Icon
             int iconX = x + (cellWidth - 64) / 2;
-            int iconY = y + (cellHeight - 64) / 2 - 20; // Shift up a bit for text
+            int iconY = y + (cellHeight - 64) / 2 - 20;
 
             if (apps[i].textureLoaded) {
                 DrawTexture(apps[i].texture, iconX, iconY, WHITE);
             } else {
-                DrawRectangle(iconX, iconY, 64, 64, GRAY); // Placeholder
+                DrawRectangle(iconX, iconY, 64, 64, GRAY);
             }
 
-            // Draw Name
             int textWidth = MeasureText(apps[i].name, 20);
+            // Simple truncation if too long could be added here
             DrawText(apps[i].name, x + (cellWidth - textWidth) / 2, iconY + 70, 20, WHITE);
         }
+
+        // Draw Navigation Buttons
+        if (totalPages > 1) {
+            if (currentPage < totalPages - 1) {
+                DrawRectangle(screenWidth - 100, screenHeight - 80, 80, 60, DARKGRAY);
+                DrawText(">", screenWidth - 70, screenHeight - 70, 40, WHITE);
+            }
+            
+            if (currentPage > 0) {
+                DrawRectangle(20, screenHeight - 80, 80, 60, DARKGRAY);
+                DrawText("<", 50, screenHeight - 70, 40, WHITE);
+            }
+        }
+        
+        // Page Indicator
+        char pageText[32];
+        snprintf(pageText, sizeof(pageText), "%d / %d", currentPage + 1, totalPages);
+        DrawText(pageText, screenWidth / 2 - 20, screenHeight - 40, 20, LIGHTGRAY);
 
         EndDrawing();
     }
 
-    // Unload Textures
     for (int i = 0; i < appCount; i++) {
         if (apps[i].textureLoaded) {
             UnloadTexture(apps[i].texture);
