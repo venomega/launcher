@@ -187,13 +187,48 @@ int main() {
     for (int i = 0; i < appCount; i++) {
         apps[i].textureLoaded = false;
         if (strlen(apps[i].iconPath) > 0 && FileExists(apps[i].iconPath)) {
-            Image img = LoadImage(apps[i].iconPath);
+            char *ext = strrchr(apps[i].iconPath, '.');
+            bool isSvg = (ext && strcmp(ext, ".svg") == 0);
+            
+            char loadPath[512];
+            strcpy(loadPath, apps[i].iconPath);
+            bool tempCreated = false;
+
+            if (isSvg) {
+                // Create a temp filename based on the app name or hash to avoid collisions
+                char tempPath[512];
+                snprintf(tempPath, sizeof(tempPath), "/tmp/launcher_icon_%d.png", i);
+                
+                // Construct command: convert input.svg -resize 64x64 output.png
+                // We use -background none to keep transparency if possible, though Raylib handles it.
+                char cmd[1024];
+                snprintf(cmd, sizeof(cmd), "convert -background none \"%s\" -resize 64x64 \"%s\"", apps[i].iconPath, tempPath);
+                
+                int ret = system(cmd);
+                if (ret == 0 && FileExists(tempPath)) {
+                    strcpy(loadPath, tempPath);
+                    tempCreated = true;
+                }
+            }
+
+            Image img = LoadImage(loadPath);
             if (img.data != NULL) {
-                ImageResize(&img, 64, 64); 
+                if (!tempCreated) {
+                    // Only resize if we didn't already resize via convert
+                    ImageResize(&img, 64, 64); 
+                }
                 apps[i].texture = LoadTextureFromImage(img);
                 apps[i].textureLoaded = true;
                 UnloadImage(img);
             }
+            
+            // Clean up temp file if we created one
+            // if (tempCreated) remove(loadPath); 
+            // Commented out to act as a cache for this session, or we can delete it. 
+            // For now, let's delete it to keep /tmp clean, or keep it? 
+            // The user didn't specify caching, but 'convert' might be slow. 
+            // Let's keep it for the session but we are re-converting every run anyway since we overwrite.
+            if (tempCreated) remove(loadPath);
         }
     }
 
