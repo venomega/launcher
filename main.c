@@ -108,7 +108,7 @@ void ParseDesktopFile(const char *path, AppEntry *app) {
 
 void LoadApps(AppEntry *apps, int *count, int maxApps) {
     const char *dirs[] = {
-        "/home/guest/.local/share/applications/",
+        "~/.local/share/applications/",
         "/usr/share/applications/",
         NULL
     };
@@ -185,14 +185,19 @@ int main() {
 
     int currentPage = 0;
     int totalPages = (appCount + APPS_PER_PAGE - 1) / APPS_PER_PAGE;
+    
+    float inputCooldown = 0.0f;
 
     while (!WindowShouldClose()) {
+        float dt = GetFrameTime();
+        if (inputCooldown > 0.0f) inputCooldown -= dt;
+
         // Reserve bottom 80 pixels for navigation
         int gridHeight = screenHeight - 80;
         int cellWidth = screenWidth / GRID_COLS;
         int cellHeight = gridHeight / GRID_ROWS;
 
-        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || IsGestureDetected(GESTURE_TAP)) {
+        if (inputCooldown <= 0.0f && (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || IsGestureDetected(GESTURE_TAP))) {
             Vector2 mousePos = GetMousePosition();
             
             // Check Navigation Buttons
@@ -204,6 +209,7 @@ int main() {
                     if (CheckCollisionPointRec(mousePos, nextBtn)) {
                         currentPage++;
                         navClicked = true;
+                        inputCooldown = 0.3f; // 300ms cooldown
                     }
                 }
                 
@@ -213,30 +219,33 @@ int main() {
                     if (CheckCollisionPointRec(mousePos, prevBtn)) {
                         currentPage--;
                         navClicked = true;
+                        inputCooldown = 0.3f;
                     }
                 }
             }
 
-            if (navClicked) continue;
+            if (navClicked) {
+                // Skip checking apps if we clicked nav
+            } else {
+                // Check Apps
+                int startIdx = currentPage * APPS_PER_PAGE;
+                int endIdx = startIdx + APPS_PER_PAGE;
+                if (endIdx > appCount) endIdx = appCount;
 
-            // Check Apps
-            int startIdx = currentPage * APPS_PER_PAGE;
-            int endIdx = startIdx + APPS_PER_PAGE;
-            if (endIdx > appCount) endIdx = appCount;
-
-            for (int i = startIdx; i < endIdx; i++) {
-                int pageIndex = i - startIdx;
-                int row = pageIndex / GRID_COLS;
-                int col = pageIndex % GRID_COLS;
-                
-                int x = col * cellWidth;
-                int y = row * cellHeight;
-                
-                // Define a clickable area for the app (icon + text area)
-                Rectangle appRect = { x + 20, y + 20, cellWidth - 40, cellHeight - 40 };
-                
-                if (CheckCollisionPointRec(mousePos, appRect)) {
-                    LaunchApp(apps[i].exec);
+                for (int i = startIdx; i < endIdx; i++) {
+                    int pageIndex = i - startIdx;
+                    int row = pageIndex / GRID_COLS;
+                    int col = pageIndex % GRID_COLS;
+                    
+                    int x = col * cellWidth;
+                    int y = row * cellHeight;
+                    
+                    // Define a clickable area for the app (icon + text area)
+                    Rectangle appRect = { x + 20, y + 20, cellWidth - 40, cellHeight - 40 };
+                    
+                    if (CheckCollisionPointRec(mousePos, appRect)) {
+                        LaunchApp(apps[i].exec);
+                    }
                 }
             }
         }
