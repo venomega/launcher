@@ -35,31 +35,47 @@ void Trim(char *str) {
 void ResolveIconPath(char *iconPath) {
     if (iconPath[0] == '/') return; // Already a path
 
-    // Check common locations (very basic)
+    // Expanded search paths
     const char *searchPaths[] = {
         "/usr/share/pixmaps/",
+        "/usr/share/icons/hicolor/256x256/apps/",
+        "/usr/share/icons/hicolor/128x128/apps/",
+        "/usr/share/icons/hicolor/64x64/apps/",
         "/usr/share/icons/hicolor/48x48/apps/",
+        "/usr/share/icons/hicolor/32x32/apps/",
         "/usr/share/icons/hicolor/scalable/apps/",
         "/usr/share/icons/Papirus-Apps/48x48/apps/", 
+        "/usr/share/icons/Papirus/48x48/apps/",
+        "/usr/share/icons/breeze/apps/48/",
+        "/usr/share/icons/mint-x/apps/48/",
+        "/usr/share/icons/mint-y/apps/48/",
+        "~/.local/share/icons/",
         NULL
     };
 
-    const char *extensions[] = { ".png", ".svg", ".xpm", NULL };
+    // Prioritize PNG as Raylib loads it natively
+    const char *pngExt[] = { ".png", NULL };
+    const char *otherExt[] = { ".svg", ".xpm", ".jpg", NULL };
 
     char tempPath[512];
+    
+    // First pass: Look for PNGs in all paths
     for (int i = 0; searchPaths[i] != NULL; i++) {
-        for (int j = 0; extensions[j] != NULL; j++) {
-            snprintf(tempPath, sizeof(tempPath), "%s%s%s", searchPaths[i], iconPath, extensions[j]);
-            if (FileExists(tempPath)) {
-                strcpy(iconPath, tempPath);
-                return;
-            }
-        }
-        // Try without extension if it might be in the name or folder structure
         snprintf(tempPath, sizeof(tempPath), "%s%s.png", searchPaths[i], iconPath);
         if (FileExists(tempPath)) {
             strcpy(iconPath, tempPath);
             return;
+        }
+    }
+
+    // Second pass: Look for other extensions
+    for (int i = 0; searchPaths[i] != NULL; i++) {
+        for (int j = 0; otherExt[j] != NULL; j++) {
+            snprintf(tempPath, sizeof(tempPath), "%s%s%s", searchPaths[i], iconPath, otherExt[j]);
+            if (FileExists(tempPath)) {
+                strcpy(iconPath, tempPath);
+                return;
+            }
         }
     }
 }
