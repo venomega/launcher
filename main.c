@@ -187,37 +187,42 @@ int main() {
     int totalPages = (appCount + APPS_PER_PAGE - 1) / APPS_PER_PAGE;
 
     while (!WindowShouldClose()) {
+        // Reserve bottom 80 pixels for navigation
+        int gridHeight = screenHeight - 80;
+        int cellWidth = screenWidth / GRID_COLS;
+        int cellHeight = gridHeight / GRID_ROWS;
+
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || IsGestureDetected(GESTURE_TAP)) {
             Vector2 mousePos = GetMousePosition();
             
             // Check Navigation Buttons
+            bool navClicked = false;
             if (totalPages > 1) {
                 if (currentPage < totalPages - 1) {
                     // Next Button (Bottom Right)
-                    Rectangle nextBtn = { screenWidth - 100, screenHeight - 80, 80, 60 };
+                    Rectangle nextBtn = { screenWidth - 100, screenHeight - 70, 80, 60 };
                     if (CheckCollisionPointRec(mousePos, nextBtn)) {
                         currentPage++;
-                        continue;
+                        navClicked = true;
                     }
                 }
                 
-                if (currentPage > 0) {
+                if (!navClicked && currentPage > 0) {
                     // Prev Button (Bottom Left)
-                    Rectangle prevBtn = { 20, screenHeight - 80, 80, 60 };
+                    Rectangle prevBtn = { 20, screenHeight - 70, 80, 60 };
                     if (CheckCollisionPointRec(mousePos, prevBtn)) {
                         currentPage--;
-                        continue;
+                        navClicked = true;
                     }
                 }
             }
+
+            if (navClicked) continue;
 
             // Check Apps
             int startIdx = currentPage * APPS_PER_PAGE;
             int endIdx = startIdx + APPS_PER_PAGE;
             if (endIdx > appCount) endIdx = appCount;
-
-            int cellWidth = screenWidth / GRID_COLS;
-            int cellHeight = screenHeight / GRID_ROWS;
 
             for (int i = startIdx; i < endIdx; i++) {
                 int pageIndex = i - startIdx;
@@ -238,9 +243,6 @@ int main() {
 
         BeginDrawing();
         ClearBackground((Color){0, 0, 0, 76});
-
-        int cellWidth = screenWidth / GRID_COLS;
-        int cellHeight = screenHeight / GRID_ROWS;
 
         int startIdx = currentPage * APPS_PER_PAGE;
         int endIdx = startIdx + APPS_PER_PAGE;
@@ -271,13 +273,13 @@ int main() {
         // Draw Navigation Buttons
         if (totalPages > 1) {
             if (currentPage < totalPages - 1) {
-                DrawRectangle(screenWidth - 100, screenHeight - 80, 80, 60, DARKGRAY);
-                DrawText(">", screenWidth - 70, screenHeight - 70, 40, WHITE);
+                DrawRectangle(screenWidth - 100, screenHeight - 70, 80, 60, DARKGRAY);
+                DrawText(">", screenWidth - 70, screenHeight - 60, 40, WHITE);
             }
             
             if (currentPage > 0) {
-                DrawRectangle(20, screenHeight - 80, 80, 60, DARKGRAY);
-                DrawText("<", 50, screenHeight - 70, 40, WHITE);
+                DrawRectangle(20, screenHeight - 70, 80, 60, DARKGRAY);
+                DrawText("<", 50, screenHeight - 60, 40, WHITE);
             }
         }
         
